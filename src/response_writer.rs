@@ -19,6 +19,11 @@ impl ResponseWriter {
     }
 
     #[allow(unused)]
+    pub fn get_status_code(&self) -> Option<u16> {
+        self.status_code
+    }
+
+    #[allow(unused)]
     pub fn set_status_code(&mut self, status_code: u16) {
         self.status_code = Some(status_code);
         self.reason_phrase =
