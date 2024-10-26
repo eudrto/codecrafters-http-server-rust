@@ -10,13 +10,19 @@ mod router;
 mod server;
 mod status_code_registry;
 
-fn home(w: &mut ResponseWriter, _: &Request) {
+fn home(w: &mut ResponseWriter, _: &mut Request) {
+    w.set_reason_phrase(ReasonPhrase::OK);
+}
+
+fn echo(w: &mut ResponseWriter, r: &mut Request) {
+    w.set_body_str(r.get_param().unwrap());
     w.set_reason_phrase(ReasonPhrase::OK);
 }
 
 pub fn run() {
     let mut router = Router::new();
     router.add_route("/".to_owned(), home);
+    router.add_route("/echo/:str".to_owned(), echo);
 
     Server::run("127.0.0.1:4221", router);
 }

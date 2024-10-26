@@ -28,11 +28,12 @@ impl<'a> StatusLine<'a> {
 #[derive(Debug)]
 pub struct Request {
     status_line: String,
+    param: Option<String>,
 }
 
 impl Request {
-    pub fn new(status_line: String) -> Self {
-        Self { status_line }
+    pub fn new(status_line: String, param: Option<String>) -> Self {
+        Self { status_line, param }
     }
 
     #[allow(unused)]
@@ -47,6 +48,14 @@ impl Request {
     #[allow(unused)]
     pub fn get_http_version(&self) -> &str {
         StatusLine::new(&self.status_line).http_version()
+    }
+
+    pub fn get_param(&self) -> Option<&str> {
+        self.param.as_deref()
+    }
+
+    pub fn set_param(&mut self, param: String) {
+        self.param = Some(param);
     }
 }
 
@@ -65,7 +74,7 @@ impl<R: Read> RequestReader<R> {
         let mut buf = String::new();
         self.buf_reader.read_line(&mut buf).unwrap();
         buf.truncate(buf.len() - 2);
-        Request::new(buf)
+        Request::new(buf, None)
     }
 }
 
@@ -79,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_request() {
-        let r = Request::new("GET / HTTP/1.1".to_owned());
+        let r = Request::new("GET / HTTP/1.1".to_owned(), None);
         assert_eq!(r.get_http_method(), "GET");
         assert_eq!(r.get_request_target(), "/");
         assert_eq!(r.get_http_version(), "HTTP/1.1");

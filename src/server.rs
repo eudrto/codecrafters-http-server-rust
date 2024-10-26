@@ -17,9 +17,9 @@ impl Server {
 
         for stream in listener.incoming() {
             let mut stream = stream.unwrap();
-            let r = RequestReader::new(&mut stream).read();
+            let mut r = RequestReader::new(&mut stream).read();
             let mut w = ResponseWriter::new_empty();
-            handler.handle(&mut w, &r);
+            handler.handle(&mut w, &mut r);
             let response = w.write();
             stream.write_all(&response).unwrap();
         }
@@ -27,14 +27,14 @@ impl Server {
 }
 
 pub trait Handler {
-    fn handle(&self, w: &mut ResponseWriter, r: &Request);
+    fn handle(&self, w: &mut ResponseWriter, r: &mut Request);
 }
 
 impl<T> Handler for T
 where
-    T: Fn(&mut ResponseWriter, &Request),
+    T: Fn(&mut ResponseWriter, &mut Request),
 {
-    fn handle(&self, w: &mut ResponseWriter, r: &Request) {
+    fn handle(&self, w: &mut ResponseWriter, r: &mut Request) {
         self(w, r)
     }
 }
