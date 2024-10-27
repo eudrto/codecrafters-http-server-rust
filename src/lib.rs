@@ -19,10 +19,16 @@ fn echo(w: &mut ResponseWriter, r: &mut Request) {
     w.set_reason_phrase(ReasonPhrase::OK);
 }
 
+fn user_agent(w: &mut ResponseWriter, r: &mut Request) {
+    w.set_body_str(r.get_header("User-Agent"));
+    w.set_reason_phrase(ReasonPhrase::OK);
+}
+
 pub fn run() {
     let mut router = Router::new();
     router.add_route("/".to_owned(), home);
     router.add_route("/echo/:str".to_owned(), echo);
+    router.add_route("/user-agent".to_owned(), user_agent);
 
     Server::run("127.0.0.1:4221", router);
 }

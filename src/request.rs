@@ -1,11 +1,14 @@
-use std::io::{BufRead, BufReader, Read};
+use std::{
+    collections::HashMap,
+    io::{BufRead, BufReader, Read},
+};
 
 #[derive(Debug)]
-struct StatusLine<'a> {
+struct RequestLine<'a> {
     line: &'a str,
 }
 
-impl<'a> StatusLine<'a> {
+impl<'a> RequestLine<'a> {
     fn new(line: &'a str) -> Self {
         Self { line }
     }
@@ -27,27 +30,36 @@ impl<'a> StatusLine<'a> {
 
 #[derive(Debug)]
 pub struct Request {
-    status_line: String,
+    request_line: String,
     param: Option<String>,
+    headers: HashMap<String, String>,
 }
 
 impl Request {
-    pub fn new(status_line: String, param: Option<String>) -> Self {
-        Self { status_line, param }
+    pub fn new(
+        request_line: String,
+        param: Option<String>,
+        headers: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            request_line,
+            param,
+            headers,
+        }
     }
 
     #[allow(unused)]
     pub fn get_http_method(&self) -> &str {
-        StatusLine::new(&self.status_line).http_method()
+        RequestLine::new(&self.request_line).http_method()
     }
 
     pub fn get_request_target(&self) -> &str {
-        StatusLine::new(&self.status_line).request_target()
+        RequestLine::new(&self.request_line).request_target()
     }
 
     #[allow(unused)]
     pub fn get_http_version(&self) -> &str {
-        StatusLine::new(&self.status_line).http_version()
+        RequestLine::new(&self.request_line).http_version()
     }
 
     pub fn get_param(&self) -> Option<&str> {
@@ -56,6 +68,10 @@ impl Request {
 
     pub fn set_param(&mut self, param: String) {
         self.param = Some(param);
+    }
+
+    pub fn get_header(&self, key: &str) -> &str {
+        &self.headers[&key.to_lowercase()]
     }
 }
 
@@ -70,17 +86,26 @@ impl<R: Read> RequestReader<R> {
         }
     }
 
-    pub fn read(&mut self) -> Request {
-        let mut buf = String::new();
-        self.buf_reader.read_line(&mut buf).unwrap();
-        buf.truncate(buf.len() - 2);
-        Request::new(buf, None)
+    pub fn read(self) -> Request {
+        let mut it = self.buf_reader.lines();
+        let request_line = it.next().unwrap().unwrap();
+
+        let headers = it
+            .map(|result| result.unwrap())
+            .take_while(|line| !line.is_empty())
+            .map(|line| {
+                let (k, v) = line.split_once(":").unwrap();
+                (k.to_lowercase(), v.trim().to_lowercase())
+            })
+            .collect();
+
+        Request::new(request_line, None, headers)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::{collections::HashMap, io::Cursor};
 
     use crate::request::RequestReader;
 
@@ -88,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_request() {
-        let r = Request::new("GET / HTTP/1.1".to_owned(), None);
+        let r = Request::new("GET / HTTP/1.1".to_owned(), None, HashMap::new());
         assert_eq!(r.get_http_method(), "GET");
         assert_eq!(r.get_request_target(), "/");
         assert_eq!(r.get_http_version(), "HTTP/1.1");
@@ -97,7 +122,7 @@ mod tests {
     #[test]
     fn test_request_reader() {
         let cursor = Cursor::new("GET / HTTP/1.1\r\n\r\n");
-        let mut request_reader = RequestReader::new(cursor);
+        let request_reader = RequestReader::new(cursor);
         let r = request_reader.read();
         assert_eq!(r.get_http_method(), "GET");
         assert_eq!(r.get_request_target(), "/");

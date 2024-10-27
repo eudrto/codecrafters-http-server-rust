@@ -70,6 +70,8 @@ impl Handler for Router {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::{request::Request, response_writer::ResponseWriter, server::Handler};
 
     use super::Router;
@@ -81,7 +83,7 @@ mod tests {
     fn run(router: &Router, uri: &str) -> (ResponseWriter, Request) {
         let mut w = ResponseWriter::new_empty();
         let status_line = format!("GET {} HTTP/1.1\r\n\r\n", uri);
-        let mut r = Request::new(status_line, None);
+        let mut r = Request::new(status_line, None, HashMap::new());
         router.handle(&mut w, &mut r);
         (w, r)
     }
