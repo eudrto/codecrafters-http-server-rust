@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::{
     io::Write,
     net::{TcpListener, TcpStream, ToSocketAddrs},
+    thread,
     time::Duration,
 };
 
@@ -29,21 +30,26 @@ impl Server {
         self.listener.local_addr().unwrap()
     }
 
-    pub fn run(&self, handler: impl Handler) {
+    pub fn run(&self, handler: impl Handler + Sync) {
         let read_timeout = Some(Duration::from_secs(10));
-        for stream in self.listener.incoming() {
-            let stream = match stream {
-                Ok(stream) => stream,
-                Err(err) => {
-                    eprintln!("{:?}", err);
-                    continue;
-                }
-            };
 
-            if let Err(err) = handle_request(stream, read_timeout, &handler) {
-                eprintln!("{}", err);
+        thread::scope(|s| {
+            for stream in self.listener.incoming() {
+                let stream = match stream {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        eprintln!("{:?}", err);
+                        continue;
+                    }
+                };
+
+                s.spawn(|| {
+                    if let Err(err) = handle_request(stream, read_timeout, &handler) {
+                        eprintln!("{}", err);
+                    }
+                });
             }
-        }
+        });
     }
 }
 

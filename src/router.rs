@@ -5,12 +5,12 @@ use crate::{
     status_code_registry::ReasonPhrase,
 };
 
-pub struct Router {
-    exact: HashMap<String, Box<dyn Handler>>,
-    dynamic: HashMap<String, Box<dyn Handler>>,
+pub struct Router<'a> {
+    exact: HashMap<String, &'a (dyn Handler + Sync)>,
+    dynamic: HashMap<String, &'a (dyn Handler + Sync)>,
 }
 
-impl Router {
+impl<'a> Router<'a> {
     pub fn new() -> Self {
         Self {
             exact: HashMap::new(),
@@ -18,10 +18,8 @@ impl Router {
         }
     }
 
-    pub fn add_route(&mut self, mut pattern: String, handler: impl Handler + 'static) {
+    pub fn add_route(&mut self, mut pattern: String, handler: &'a (impl Handler + Sync)) {
         assert!(pattern.starts_with('/'));
-
-        let handler = Box::new(handler);
 
         if pattern == "/" {
             self.exact.insert(pattern, handler);
@@ -62,7 +60,7 @@ impl Router {
     }
 }
 
-impl Handler for Router {
+impl<'a> Handler for Router<'a> {
     fn handle(&self, w: &mut ResponseWriter, r: &mut Request) {
         self.handle(w, r);
     }
@@ -87,8 +85,9 @@ mod tests {
     #[test]
     fn test_not_found() {
         let mut router = Router::new();
-        router.add_route("/".to_owned(), noop_handler());
-        router.add_route("/items".to_owned(), noop_handler());
+        let noop_handler = &noop_handler();
+        router.add_route("/".to_owned(), noop_handler);
+        router.add_route("/items".to_owned(), noop_handler);
 
         struct Test {
             uri: &'static str,
@@ -119,7 +118,8 @@ mod tests {
     #[test]
     fn test_router_root() {
         let mut router = Router::new();
-        router.add_route("/".to_owned(), noop_handler());
+        let noop_handler = &noop_handler();
+        router.add_route("/".to_owned(), noop_handler);
         assert_eq!(router.exact.len(), 1);
         assert!(router.exact.contains_key("/"));
     }
@@ -127,8 +127,9 @@ mod tests {
     #[test]
     fn test_router_dynamic() {
         let mut router = Router::new();
-        router.add_route("/".to_owned(), noop_handler());
-        router.add_route("/items/:id".to_owned(), noop_handler());
+        let noop_handler = &noop_handler();
+        router.add_route("/".to_owned(), noop_handler);
+        router.add_route("/items/:id".to_owned(), noop_handler);
 
         struct Test {
             uri: &'static str,
@@ -179,9 +180,10 @@ mod tests {
     #[test]
     fn test_router_both() {
         let mut router = Router::new();
-        router.add_route("/".to_owned(), noop_handler());
-        router.add_route("/items".to_owned(), noop_handler());
-        router.add_route("/items/:id".to_owned(), noop_handler());
+        let noop_handler = &noop_handler();
+        router.add_route("/".to_owned(), noop_handler);
+        router.add_route("/items".to_owned(), noop_handler);
+        router.add_route("/items/:id".to_owned(), noop_handler);
 
         struct Test {
             uri: &'static str,
