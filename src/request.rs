@@ -92,17 +92,24 @@ impl<R: Read> RequestReader<R> {
         }
     }
 
-    pub fn read(self) -> anyhow::Result<Request> {
-        let mut it = self.buf_reader.lines();
+    pub fn read(mut self) -> anyhow::Result<Request> {
+        let mut request_line = String::new();
+        self.buf_reader.read_line(&mut request_line)?;
+        request_line = request_line
+            .strip_suffix("\r\n")
+            .ok_or(InvalidRequest)?
+            .to_owned();
 
-        let request_line = it.next().unwrap()?;
         if request_line.split(" ").count() != 3 {
             Err(InvalidRequest)?
         }
 
         let mut headers = HashMap::new();
-        while let Some(line) = it.next() {
-            let line = line?;
+        loop {
+            let mut line = String::new();
+            self.buf_reader.read_line(&mut line)?;
+            line = line.strip_suffix("\r\n").ok_or(InvalidRequest)?.to_owned();
+
             if line.is_empty() {
                 break;
             }
@@ -194,5 +201,27 @@ mod tests {
         let request_reader = RequestReader::new(err_reader);
         let res = request_reader.read();
         res.unwrap_err().downcast_ref::<io::Error>().unwrap();
+    }
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // newline
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+    #[test]
+    fn test_request_reader_missing_newline_after_headers() {
+        {
+            let data = "GET / HTTP/1.1\r\n";
+            let cursor = Cursor::new(data);
+            let request_reader = RequestReader::new(cursor);
+            let res = request_reader.read();
+            res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
+        }
+        {
+            let data = "GET / HTTP/1.1\r\nAccept: */*\r\n";
+            let cursor = Cursor::new(data);
+            let request_reader = RequestReader::new(cursor);
+            let res = request_reader.read();
+            res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
+        }
     }
 }
