@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::net::SocketAddr;
 use std::{
     io::Write,
     net::{TcpListener, TcpStream, ToSocketAddrs},
@@ -11,14 +13,25 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Server;
+pub struct Server {
+    listener: TcpListener,
+}
 
 impl Server {
-    pub fn run(addr: impl ToSocketAddrs, handler: impl Handler) {
-        let listener = TcpListener::bind(addr).unwrap();
+    pub fn new(addr: impl ToSocketAddrs) -> Self {
+        Self {
+            listener: TcpListener::bind(addr).unwrap(),
+        }
+    }
 
+    #[cfg(test)]
+    pub fn local_addr(&self) -> SocketAddr {
+        self.listener.local_addr().unwrap()
+    }
+
+    pub fn run(&self, handler: impl Handler) {
         let read_timeout = Some(Duration::from_secs(10));
-        for stream in listener.incoming() {
+        for stream in self.listener.incoming() {
             let stream = match stream {
                 Ok(stream) => stream,
                 Err(err) => {
