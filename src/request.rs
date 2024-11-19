@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Take},
 };
 
 use thiserror::Error;
@@ -82,18 +82,19 @@ impl Request {
 pub struct InvalidRequest;
 
 pub struct RequestReader<R> {
-    buf_reader: BufReader<R>,
+    buf_reader: Take<BufReader<R>>,
 }
 
 impl<R: Read> RequestReader<R> {
     pub fn new(r: R) -> Self {
         Self {
-            buf_reader: BufReader::new(r),
+            buf_reader: BufReader::new(r).take(u64::MAX),
         }
     }
 
     pub fn read(mut self) -> anyhow::Result<Request> {
         let mut request_line = String::new();
+        self.buf_reader.set_limit(1024);
         self.buf_reader.read_line(&mut request_line)?;
         request_line = request_line
             .strip_suffix("\r\n")
@@ -105,6 +106,7 @@ impl<R: Read> RequestReader<R> {
         }
 
         let mut headers = HashMap::new();
+        self.buf_reader.set_limit(8 * 1024);
         loop {
             let mut line = String::new();
             self.buf_reader.read_line(&mut line)?;
@@ -128,7 +130,7 @@ mod tests {
         io::{self, Cursor},
     };
 
-    use crate::test_utils::ErrReader;
+    use crate::test_utils::{ErrReader, InfReader};
 
     use super::{InvalidRequest, Request, RequestReader};
 
@@ -220,6 +222,30 @@ mod tests {
             let data = "GET / HTTP/1.1\r\nAccept: */*\r\n";
             let cursor = Cursor::new(data);
             let request_reader = RequestReader::new(cursor);
+            let res = request_reader.read();
+            res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
+        }
+    }
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // infinite stream
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+    #[test]
+    fn test_request_reader_infinite_stream() {
+        {
+            let prefix = b"GET / HTTP/1.1\r\n";
+            let repeat = 0;
+            let inf_reader = InfReader::new(prefix, repeat);
+            let request_reader = RequestReader::new(inf_reader);
+            let res = request_reader.read();
+            res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
+        }
+        {
+            let prefix = b"GET / HTTP/1.1\r\nAccept: */*\r\n";
+            let repeat = 0;
+            let inf_reader = InfReader::new(prefix, repeat);
+            let request_reader = RequestReader::new(inf_reader);
             let res = request_reader.read();
             res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
         }
