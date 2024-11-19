@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    request::{Request, RequestReader},
+    request::{EndOfFile, Request, RequestReader},
     response_writer::ResponseWriter,
     status_code_registry::ReasonPhrase,
 };
@@ -44,7 +44,7 @@ impl Server {
                 };
 
                 s.spawn(|| {
-                    if let Err(err) = handle_request(stream, read_timeout, &handler) {
+                    if let Err(err) = handle_connection(stream, read_timeout, &handler) {
                         eprintln!("{}", err);
                     }
                 });
@@ -53,29 +53,63 @@ impl Server {
     }
 }
 
-fn handle_request(
-    mut stream: TcpStream,
+#[derive(Debug)]
+enum ConnCtrl {
+    KeepAlive,
+    Close,
+}
+
+fn handle_connection(
+    stream: TcpStream,
     read_timeout: Option<Duration>,
     handler: &impl Handler,
 ) -> anyhow::Result<()> {
-    stream.set_read_timeout(read_timeout)?;
+    let (reader, writer) = (&stream, &stream);
+    reader.set_read_timeout(read_timeout)?;
+    let mut request_reader = RequestReader::new(reader);
 
-    let mut r = match RequestReader::new(&mut stream).read() {
+    loop {
+        match handle_request(&mut request_reader, writer, handler) {
+            Ok(ConnCtrl::KeepAlive) => continue,
+            Ok(ConnCtrl::Close) => return Ok(()),
+            Err(err) => {
+                return Err(err);
+            }
+        }
+    }
+}
+
+fn handle_request(
+    request_reader: &mut RequestReader<&TcpStream>,
+    mut writer: &TcpStream,
+    handler: &impl Handler,
+) -> anyhow::Result<ConnCtrl> {
+    let mut r = match request_reader.read() {
         Ok(r) => r,
         Err(err) => {
+            if err.downcast_ref::<EndOfFile>().is_some() {
+                return Ok(ConnCtrl::Close);
+            }
+
+            eprintln!("{}", err);
             let mut w = ResponseWriter::new_empty();
             w.set_reason_phrase(ReasonPhrase::BadRequest);
-            stream.write_all(&w.write())?;
-            Err(err)?
+            writer.write_all(&w.write())?;
+            return Ok(ConnCtrl::Close);
         }
     };
     dbg!(&r);
 
+    let conn_ctrl = match r.get_header("connection") {
+        Some(c) if c == "close" => ConnCtrl::Close,
+        _ => ConnCtrl::KeepAlive,
+    };
+
     let mut w = ResponseWriter::new_empty();
     handler.handle(&mut w, &mut r);
     let response = w.write();
-    stream.write_all(&response)?;
-    Ok(())
+    writer.write_all(&response)?;
+    Ok(conn_ctrl)
 }
 
 pub trait Handler {
@@ -99,13 +133,17 @@ pub fn noop_handler() -> impl Handler {
 #[cfg(test)]
 pub mod tests {
     use std::{
-        io::{self, Write},
+        io::{BufReader, Read, Write},
         net::{TcpListener, TcpStream},
         thread,
         time::Duration,
     };
 
-    use super::{handle_request, noop_handler};
+    use crate::{
+        request::Request, response_writer::ResponseWriter, status_code_registry::ReasonPhrase,
+    };
+
+    use super::{handle_connection, noop_handler, Server};
 
     #[test]
     fn test_request_reader_timeout() {
@@ -116,7 +154,7 @@ pub mod tests {
 
         let server_handle = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            handle_request(stream, timeout, &noop_handler())
+            handle_connection(stream, timeout, &noop_handler())
         });
 
         let _client_handle = thread::spawn(move || {
@@ -125,7 +163,34 @@ pub mod tests {
             loop {}
         });
 
-        let res = server_handle.join().unwrap();
-        res.unwrap_err().downcast_ref::<io::Error>().unwrap();
+        server_handle.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn test_persistent_connection() {
+        let timeout = Some(Duration::from_millis(100));
+
+        let server = Server::new("localhost:0");
+        let addr = server.local_addr();
+
+        thread::spawn(move || {
+            server.run(|w: &mut ResponseWriter, _: &mut Request| {
+                w.set_reason_phrase(ReasonPhrase::OK);
+            });
+        });
+
+        let stream = TcpStream::connect(addr).unwrap();
+        let (r, mut writer) = (&stream, &stream);
+        r.set_read_timeout(timeout).unwrap();
+        let mut reader = BufReader::new(r);
+
+        writer.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
+
+        // Read to ends tries to read until EOF but cannot do so
+        // because the connection is not closed.
+        // Instead, the timeout expires and an error is returned.
+        let mut buf = vec![];
+        let res = reader.read_to_end(&mut buf);
+        res.unwrap_err();
     }
 }

@@ -22,7 +22,7 @@ fn echo(w: &mut ResponseWriter, r: &mut Request) {
 }
 
 fn user_agent(w: &mut ResponseWriter, r: &mut Request) {
-    w.set_body_str(r.get_header("User-Agent"));
+    w.set_body_str(r.get_header("User-Agent").unwrap_or(""));
     w.set_reason_phrase(ReasonPhrase::OK);
 }
 

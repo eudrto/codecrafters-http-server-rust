@@ -72,10 +72,14 @@ impl Request {
         self.param = Some(param);
     }
 
-    pub fn get_header(&self, key: &str) -> &str {
-        &self.headers[&key.to_lowercase()]
+    pub fn get_header(&self, key: &str) -> Option<&str> {
+        self.headers.get(&key.to_lowercase()).map(|v| v.as_str())
     }
 }
+
+#[derive(Error, Debug)]
+#[error("end of file")]
+pub struct EndOfFile;
 
 #[derive(Error, Debug)]
 #[error("invalid request")]
@@ -92,10 +96,13 @@ impl<R: Read> RequestReader<R> {
         }
     }
 
-    pub fn read(mut self) -> anyhow::Result<Request> {
+    pub fn read(&mut self) -> anyhow::Result<Request> {
         let mut request_line = String::new();
         self.buf_reader.set_limit(1024);
-        self.buf_reader.read_line(&mut request_line)?;
+        let n = self.buf_reader.read_line(&mut request_line)?;
+        if n == 0 {
+            Err(EndOfFile)?
+        }
         request_line = request_line
             .strip_suffix("\r\n")
             .ok_or(InvalidRequest)?
@@ -132,7 +139,7 @@ mod tests {
 
     use crate::test_utils::{ErrReader, InfReader};
 
-    use super::{InvalidRequest, Request, RequestReader};
+    use super::{EndOfFile, InvalidRequest, Request, RequestReader};
 
     #[test]
     fn test_request() {
@@ -149,7 +156,7 @@ mod tests {
     #[test]
     fn test_request_reader_status_line_ok() {
         let cursor = Cursor::new("GET / HTTP/1.1\r\n\r\n");
-        let request_reader = RequestReader::new(cursor);
+        let mut request_reader = RequestReader::new(cursor);
         let r = request_reader.read().unwrap();
         assert_eq!(r.get_http_method(), "GET");
         assert_eq!(r.get_request_target(), "/");
@@ -159,15 +166,15 @@ mod tests {
     #[test]
     fn test_request_reader_status_line_empty() {
         let cursor = Cursor::new("");
-        let request_reader = RequestReader::new(cursor);
+        let mut request_reader = RequestReader::new(cursor);
         let res = request_reader.read();
-        res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
+        res.unwrap_err().downcast_ref::<EndOfFile>().unwrap();
     }
 
     #[test]
     fn test_request_reader_status_line_error() {
         let err_reader = ErrReader::new(b"GET /");
-        let request_reader = RequestReader::new(err_reader);
+        let mut request_reader = RequestReader::new(err_reader);
         let res = request_reader.read();
         res.unwrap_err().downcast_ref::<io::Error>().unwrap();
     }
@@ -180,19 +187,19 @@ mod tests {
     fn test_request_reader_headers_ok() {
         let data = "GET / HTTP/1.1\r\nAccept: */*\r\n\r\n";
         let cursor = Cursor::new(data);
-        let request_reader = RequestReader::new(cursor);
+        let mut request_reader = RequestReader::new(cursor);
         let r = request_reader.read().unwrap();
         assert_eq!(r.get_http_method(), "GET");
         assert_eq!(r.get_request_target(), "/");
         assert_eq!(r.get_http_version(), "HTTP/1.1");
-        assert_eq!(r.get_header("accept"), "*/*");
+        assert_eq!(r.get_header("accept").unwrap(), "*/*");
     }
 
     #[test]
     fn test_request_reader_headers_no_colon() {
         let data = "GET / HTTP/1.1\r\nAccept */*\r\n\r\n";
         let cursor = Cursor::new(data);
-        let request_reader = RequestReader::new(cursor);
+        let mut request_reader = RequestReader::new(cursor);
         let res = request_reader.read();
         res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
     }
@@ -200,7 +207,7 @@ mod tests {
     #[test]
     fn test_request_reader_headers_error() {
         let err_reader = ErrReader::new(b"GET / HTTP/1.1\r\nAccept");
-        let request_reader = RequestReader::new(err_reader);
+        let mut request_reader = RequestReader::new(err_reader);
         let res = request_reader.read();
         res.unwrap_err().downcast_ref::<io::Error>().unwrap();
     }
@@ -214,14 +221,14 @@ mod tests {
         {
             let data = "GET / HTTP/1.1\r\n";
             let cursor = Cursor::new(data);
-            let request_reader = RequestReader::new(cursor);
+            let mut request_reader = RequestReader::new(cursor);
             let res = request_reader.read();
             res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
         }
         {
             let data = "GET / HTTP/1.1\r\nAccept: */*\r\n";
             let cursor = Cursor::new(data);
-            let request_reader = RequestReader::new(cursor);
+            let mut request_reader = RequestReader::new(cursor);
             let res = request_reader.read();
             res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
         }
@@ -237,7 +244,7 @@ mod tests {
             let prefix = b"GET / HTTP/1.1\r\n";
             let repeat = 0;
             let inf_reader = InfReader::new(prefix, repeat);
-            let request_reader = RequestReader::new(inf_reader);
+            let mut request_reader = RequestReader::new(inf_reader);
             let res = request_reader.read();
             res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
         }
@@ -245,9 +252,38 @@ mod tests {
             let prefix = b"GET / HTTP/1.1\r\nAccept: */*\r\n";
             let repeat = 0;
             let inf_reader = InfReader::new(prefix, repeat);
-            let request_reader = RequestReader::new(inf_reader);
+            let mut request_reader = RequestReader::new(inf_reader);
             let res = request_reader.read();
             res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
         }
+    }
+
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    // multiple requests
+    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+    #[test]
+    fn test_request_reader_multiple_requests() {
+        let fst = "GET / HTTP/1.1\r\n\r\n";
+        let snd = "GET /about HTTP/1.1\r\n\r\n";
+        let cursor = Cursor::new(format!("{}{}", fst, snd));
+        let mut request_reader = RequestReader::new(cursor);
+
+        {
+            let r = request_reader.read().unwrap();
+            assert_eq!(r.get_http_method(), "GET");
+            assert_eq!(r.get_request_target(), "/");
+            assert_eq!(r.get_http_version(), "HTTP/1.1");
+        }
+
+        {
+            let r = request_reader.read().unwrap();
+            assert_eq!(r.get_http_method(), "GET");
+            assert_eq!(r.get_request_target(), "/about");
+            assert_eq!(r.get_http_version(), "HTTP/1.1");
+        }
+
+        let res = request_reader.read();
+        res.unwrap_err().downcast_ref::<EndOfFile>().unwrap();
     }
 }
