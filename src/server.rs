@@ -6,6 +6,7 @@ use std::{
 use crate::{
     request::{Request, RequestReader},
     response_writer::ResponseWriter,
+    status_code_registry::ReasonPhrase,
 };
 
 #[derive(Debug)]
@@ -16,12 +17,34 @@ impl Server {
         let listener = TcpListener::bind(addr).unwrap();
 
         for stream in listener.incoming() {
-            let mut stream = stream.unwrap();
-            let mut r = RequestReader::new(&mut stream).read();
+            let mut stream = match stream {
+                Ok(stream) => stream,
+                Err(err) => {
+                    eprintln!("{:?}", err);
+                    continue;
+                }
+            };
+
+            let mut r = match RequestReader::new(&mut stream).read() {
+                Ok(r) => r,
+                Err(err) => {
+                    eprintln!("{:?}", err);
+                    let mut w = ResponseWriter::new_empty();
+                    w.set_reason_phrase(ReasonPhrase::BadRequest);
+                    if let Err(err) = stream.write_all(&w.write()) {
+                        eprintln!("{:?}", err);
+                    }
+                    continue;
+                }
+            };
+            dbg!(&r);
+
             let mut w = ResponseWriter::new_empty();
             handler.handle(&mut w, &mut r);
             let response = w.write();
-            stream.write_all(&response).unwrap();
+            if let Err(err) = stream.write_all(&response) {
+                eprintln!("{:?}", err);
+            }
         }
     }
 }

@@ -9,6 +9,8 @@ mod response_writer;
 mod router;
 mod server;
 mod status_code_registry;
+#[cfg(test)]
+mod test_utils;
 
 fn home(w: &mut ResponseWriter, _: &mut Request) {
     w.set_reason_phrase(ReasonPhrase::OK);
