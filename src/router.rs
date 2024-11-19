@@ -72,13 +72,9 @@ impl Handler for Router {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{request::Request, response_writer::ResponseWriter, server::Handler};
+    use crate::{request::Request, response_writer::ResponseWriter, server::noop_handler};
 
     use super::Router;
-
-    fn noop_handler() -> impl Handler {
-        |_: &mut ResponseWriter, _: &mut Request| {}
-    }
 
     fn run(router: &Router, uri: &str) -> (ResponseWriter, Request) {
         let mut w = ResponseWriter::new_empty();
