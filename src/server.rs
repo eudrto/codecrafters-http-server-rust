@@ -7,6 +7,8 @@ use std::{
     time::Duration,
 };
 
+use tracing::{error, info, span, Level, Span};
+
 use crate::{
     request::{EndOfFile, Request, RequestReader},
     response_writer::ResponseWriter,
@@ -32,21 +34,26 @@ impl Server {
 
     pub fn run(&self, handler: impl Handler + Sync) {
         let read_timeout = Some(Duration::from_secs(10));
-
         thread::scope(|s| {
             for stream in self.listener.incoming() {
                 let stream = match stream {
                     Ok(stream) => stream,
                     Err(err) => {
-                        eprintln!("{:?}", err);
+                        error!(?err);
                         continue;
                     }
                 };
 
                 s.spawn(|| {
+                    let span = create_conn_span(&stream);
+                    let _guard = span.enter();
+                    info!("new conn");
+
                     if let Err(err) = handle_connection(stream, read_timeout, &handler) {
-                        eprintln!("{}", err);
+                        error!(?err);
                     }
+
+                    info!("conn end");
                 });
             }
         });
@@ -91,14 +98,17 @@ fn handle_request(
                 return Ok(ConnCtrl::Close);
             }
 
-            eprintln!("{}", err);
+            error!(?err);
             let mut w = ResponseWriter::new_empty();
             w.set_reason_phrase(ReasonPhrase::BadRequest);
             writer.write_all(&w.write())?;
             return Ok(ConnCtrl::Close);
         }
     };
-    dbg!(&r);
+
+    let span = create_req_span(&r);
+    let _guard = span.enter();
+    info!(?r);
 
     let conn_ctrl = match r.get_header("connection") {
         Some(c) if c == "close" => ConnCtrl::Close,
@@ -110,6 +120,29 @@ fn handle_request(
     let response = w.write();
     writer.write_all(&response)?;
     Ok(conn_ctrl)
+}
+
+fn create_conn_span(stream: &TcpStream) -> Span {
+    let peer_addr = match stream.peer_addr() {
+        Ok(addr) => &addr.to_string(),
+        Err(err) => {
+            error!(?err);
+            "unknown"
+        }
+    };
+
+    span!(Level::INFO, "conn", peer_addr)
+}
+
+fn create_req_span(r: &Request) -> Span {
+    let http_method = r.get_http_method();
+    let request_target = r.get_request_target();
+    span!(
+        Level::INFO,
+        "req",
+        method = http_method,
+        target = request_target
+    )
 }
 
 pub trait Handler {

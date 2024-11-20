@@ -12,6 +12,22 @@ mod status_code_registry;
 #[cfg(test)]
 mod test_utils;
 
+#[ctor::ctor]
+fn init_tracing() {
+    use tracing_subscriber::fmt::format;
+
+    let builder = tracing_subscriber::fmt()
+        .event_format(format().pretty())
+        .with_target(false)
+        .with_file(true)
+        .with_line_number(true);
+
+    #[cfg(not(test))]
+    builder.init();
+    #[cfg(test)]
+    builder.with_test_writer().init();
+}
+
 fn home(w: &mut ResponseWriter, _: &mut Request) {
     w.set_reason_phrase(ReasonPhrase::OK);
 }

@@ -4,6 +4,7 @@ use std::{
 };
 
 use thiserror::Error;
+use tracing::info;
 
 #[derive(Debug)]
 struct RequestLine<'a> {
@@ -111,6 +112,8 @@ impl<R: Read> RequestReader<R> {
         if request_line.split(" ").count() != 3 {
             Err(InvalidRequest)?
         }
+
+        info!(?request_line);
 
         let mut headers = HashMap::new();
         self.buf_reader.set_limit(8 * 1024);
