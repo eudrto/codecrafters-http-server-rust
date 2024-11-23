@@ -66,6 +66,13 @@ pub fn run() {
     if let Some(file_retriever) = &file_retriever {
         router.add_route(HttpMethod::Get, "/files/", file_retriever);
     };
+    let file_writer = args
+        .directory
+        .as_deref()
+        .map(|directory| file_server::new_file_writer(directory));
+    if let Some(file_retriever) = &file_writer {
+        router.add_route(HttpMethod::Post, "/files/", file_retriever);
+    };
 
     let server = Server::new("127.0.0.1:4221");
     server.run(router);

@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Read, Take},
+    io::{BufRead, BufReader, ErrorKind, Read, Take},
 };
 
 use thiserror::Error;
@@ -36,6 +36,7 @@ pub struct Request {
     request_line: String,
     param: Option<String>,
     headers: HashMap<String, String>,
+    body: Option<Vec<u8>>,
 }
 
 impl Request {
@@ -43,11 +44,13 @@ impl Request {
         request_line: String,
         param: Option<String>,
         headers: HashMap<String, String>,
+        body: Option<Vec<u8>>,
     ) -> Self {
         Self {
             request_line,
             param,
             headers,
+            body,
         }
     }
 
@@ -75,6 +78,10 @@ impl Request {
 
     pub fn get_header(&self, key: &str) -> Option<&str> {
         self.headers.get(&key.to_lowercase()).map(|v| v.as_str())
+    }
+
+    pub fn get_body(&self) -> Option<&[u8]> {
+        self.body.as_deref()
     }
 }
 
@@ -129,7 +136,22 @@ impl<R: Read> RequestReader<R> {
             headers.insert(k.to_lowercase(), v.trim().to_owned());
         }
 
-        Ok(Request::new(request_line, None, headers))
+        self.buf_reader.set_limit(8 * 1024);
+        let mut body = None;
+        if RequestLine::new(&request_line).http_method().to_lowercase() == "post" {
+            let content_length = headers.get("content-length").ok_or(InvalidRequest)?;
+            let mut buf = vec![0; content_length.parse().map_err(|_| InvalidRequest)?];
+            if let Err(err) = self.buf_reader.read_exact(&mut buf) {
+                if err.kind() == ErrorKind::UnexpectedEof {
+                    Err(InvalidRequest)?
+                } else {
+                    Err(err)?
+                }
+            }
+            body = Some(buf)
+        };
+
+        Ok(Request::new(request_line, None, headers, body))
     }
 }
 
@@ -146,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_request() {
-        let r = Request::new("GET / HTTP/1.1".to_owned(), None, HashMap::new());
+        let r = Request::new("GET / HTTP/1.1".to_owned(), None, HashMap::new(), None);
         assert_eq!(r.get_http_method(), "GET");
         assert_eq!(r.get_request_target(), "/");
         assert_eq!(r.get_http_version(), "HTTP/1.1");
