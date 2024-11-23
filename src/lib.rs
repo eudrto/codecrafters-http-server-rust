@@ -3,7 +3,7 @@ use clap::Parser;
 use request::Request;
 use response_writer::ResponseWriter;
 use router::Router;
-use server::Server;
+use server::{HttpMethod, Server};
 use status_code_registry::ReasonPhrase;
 
 mod file_server;
@@ -55,16 +55,16 @@ pub fn run() {
     let args = Args::parse();
 
     let mut router = Router::new();
-    router.add_route("/", &home);
-    router.add_route("/echo/:str", &echo);
-    router.add_route("/user-agent", &user_agent);
+    router.add_route(HttpMethod::Get, "/", &home);
+    router.add_route(HttpMethod::Get, "/echo/:str", &echo);
+    router.add_route(HttpMethod::Get, "/user-agent", &user_agent);
 
     let file_retriever = args
         .directory
         .as_deref()
         .map(|directory| file_server::new_file_retriever(directory));
     if let Some(file_retriever) = &file_retriever {
-        router.add_route("/files/", file_retriever);
+        router.add_route(HttpMethod::Get, "/files/", file_retriever);
     };
 
     let server = Server::new("127.0.0.1:4221");
@@ -77,9 +77,9 @@ pub mod tests {
 
     use reqwest::{blocking::Client, header};
 
-    use crate::{router::Router, server::Server};
+    use crate::router::Router;
 
-    use super::{echo, home, user_agent};
+    use super::{echo, home, user_agent, HttpMethod, Server};
 
     #[test]
     fn test_home() {
@@ -88,7 +88,7 @@ pub mod tests {
 
         thread::spawn(move || {
             let mut router = Router::new();
-            router.add_route("/", &home);
+            router.add_route(HttpMethod::Get, "/", &home);
             server.run(router);
         });
 
@@ -104,7 +104,7 @@ pub mod tests {
 
         thread::spawn(move || {
             let mut router = Router::new();
-            router.add_route("/echo/:str", &echo);
+            router.add_route(HttpMethod::Get, "/echo/:str", &echo);
             server.run(router);
         });
 
@@ -121,7 +121,7 @@ pub mod tests {
 
         thread::spawn(move || {
             let mut router = Router::new();
-            router.add_route("/user-agent", &user_agent);
+            router.add_route(HttpMethod::Get, "/user-agent", &user_agent);
             server.run(router);
         });
 

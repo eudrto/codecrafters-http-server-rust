@@ -15,6 +15,22 @@ use crate::{
     status_code_registry::ReasonPhrase,
 };
 
+pub enum HttpMethod {
+    Get = 0,
+    Post = 1,
+}
+
+impl TryFrom<&str> for HttpMethod {
+    type Error = ();
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value.to_lowercase().as_str() {
+            "get" => Ok(HttpMethod::Get),
+            "post" => Ok(HttpMethod::Post),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Server {
     listener: TcpListener,

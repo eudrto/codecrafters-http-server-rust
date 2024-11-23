@@ -31,7 +31,7 @@ mod tests {
     use super::Exact;
 
     #[test]
-    fn test_exact() {
+    fn test_exact_match() {
         let mut exact = Exact::new();
 
         let noop_handler = &noop_handler();

@@ -76,7 +76,11 @@ mod tests {
 
     use tempdir::TempDir;
 
-    use crate::{file_server::new_file_retriever, router::Router, server::Server};
+    use crate::{
+        file_server::new_file_retriever,
+        router::Router,
+        server::{HttpMethod, Server},
+    };
 
     use super::build_path;
 
@@ -126,7 +130,7 @@ mod tests {
         thread::spawn(move || {
             let mut router = Router::new();
             let file_retriever = new_file_retriever(&*clone);
-            router.add_route("/files/", &file_retriever);
+            router.add_route(HttpMethod::Get, "/files/", &file_retriever);
             server.run(router);
         });
 
