@@ -1,9 +1,12 @@
+use clap::Parser;
+
 use request::Request;
 use response_writer::ResponseWriter;
 use router::Router;
 use server::Server;
 use status_code_registry::ReasonPhrase;
 
+mod file_server;
 mod request;
 mod response_writer;
 mod router;
@@ -28,6 +31,12 @@ fn init_tracing() {
     builder.with_test_writer().init();
 }
 
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(short, long)]
+    directory: Option<String>,
+}
+
 fn home(w: &mut ResponseWriter, _: &mut Request) {
     w.set_reason_phrase(ReasonPhrase::OK);
 }
@@ -43,10 +52,20 @@ fn user_agent(w: &mut ResponseWriter, r: &mut Request) {
 }
 
 pub fn run() {
+    let args = Args::parse();
+
     let mut router = Router::new();
     router.add_route("/", &home);
     router.add_route("/echo/:str", &echo);
     router.add_route("/user-agent", &user_agent);
+
+    let file_retriever = args
+        .directory
+        .as_deref()
+        .map(|directory| file_server::new_file_retriever(directory));
+    if let Some(file_retriever) = &file_retriever {
+        router.add_route("/files/", file_retriever);
+    };
 
     let server = Server::new("127.0.0.1:4221");
     server.run(router);

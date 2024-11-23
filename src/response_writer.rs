@@ -49,23 +49,25 @@ impl ResponseWriter {
         self.headers.push((k, v));
     }
 
-    fn add_content_type_header(&mut self) {
-        self.add_header("Content-Type".to_owned(), "text/plain".to_owned());
+    fn add_content_type_header(&mut self, content_type: &str) {
+        self.add_header("Content-Type".to_owned(), content_type.to_owned());
     }
 
     fn add_content_length_header(&mut self) {
         self.add_header("Content-Length".to_owned(), self.body.len().to_string());
     }
 
-    pub fn set_body(&mut self, body: Vec<u8>) {
+    pub fn set_body(&mut self, body: Vec<u8>, content_type: &str) {
         self.body = body;
+        self.add_content_type_header(content_type);
+        self.add_content_length_header();
     }
 
     pub fn set_body_str(&mut self, body: &str) {
-        self.set_body(body.bytes().collect());
+        self.set_body(body.bytes().collect(), "text/plain");
     }
 
-    pub fn write(mut self) -> Vec<u8> {
+    pub fn write(self) -> Vec<u8> {
         let status_code = self.status_code.unwrap();
         let mut status_line = format!("HTTP/1.1 {}", status_code);
         if let Some(reason_phrase) = &self.reason_phrase {
@@ -77,9 +79,6 @@ impl ResponseWriter {
             status_line.push_str("\r\n");
             return status_line.bytes().collect();
         }
-
-        self.add_content_type_header();
-        self.add_content_length_header();
 
         let mut headers = self
             .headers
