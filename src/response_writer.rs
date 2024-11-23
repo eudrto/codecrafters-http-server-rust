@@ -1,4 +1,7 @@
-use crate::status_code_registry::{self, ReasonPhrase};
+use crate::{
+    server::HttpMethod,
+    status_code_registry::{self, ReasonPhrase},
+};
 
 #[derive(Debug)]
 pub struct ResponseWriter {
@@ -47,6 +50,16 @@ impl ResponseWriter {
 
     fn add_header(&mut self, k: String, v: String) {
         self.headers.push((k, v));
+    }
+
+    pub fn add_allow_header(&mut self, http_methods: Vec<HttpMethod>) {
+        let http_methods = http_methods
+            .iter()
+            .map(|m| m.to_string().to_uppercase())
+            .collect::<Vec<_>>()
+            .join(", ");
+        dbg!(&http_methods);
+        self.add_header("Allow".to_owned(), http_methods);
     }
 
     fn add_content_type_header(&mut self, content_type: &str) {

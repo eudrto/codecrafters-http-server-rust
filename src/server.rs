@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use strum_macros::Display;
 use tracing::{error, info, span, Level, Span};
 
 use crate::{
@@ -15,9 +16,21 @@ use crate::{
     status_code_registry::ReasonPhrase,
 };
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Display)]
 pub enum HttpMethod {
     Get = 0,
     Post = 1,
+}
+
+impl TryFrom<usize> for HttpMethod {
+    type Error = ();
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(HttpMethod::Get),
+            1 => Ok(HttpMethod::Post),
+            _ => Err(()),
+        }
+    }
 }
 
 impl TryFrom<&str> for HttpMethod {
