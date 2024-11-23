@@ -1,4 +1,5 @@
 use matcher::{Dynamic, Exact};
+use tracing::info;
 
 use crate::{
     request::Request, response_writer::ResponseWriter, server::Handler,
@@ -33,7 +34,7 @@ impl<'a> Router<'a> {
         }
         let (key, param) = pattern.rsplit_once("/").unwrap();
         if param.starts_with(":") {
-            self.dynamic.add_route(key, handler);
+            self.dynamic.add_route(key, &pattern, handler);
             return;
         }
         self.exact.add_route(pattern, handler);
@@ -46,16 +47,19 @@ impl<'a> Router<'a> {
             uri = &uri[..uri.len() - 1];
         }
 
-        if let Some((param, handler)) = self.dynamic.pattern_match(uri) {
+        if let Some((m, param)) = self.dynamic.pattern_match(uri) {
+            info!("match: {}", m.pattern);
             r.set_param(param);
-            handler.handle(w, r);
+            m.handler.handle(w, r);
             return;
         }
-        if let Some(handler) = self.exact.pattern_match(uri) {
-            handler.handle(w, r);
+        if let Some(m) = self.exact.pattern_match(uri) {
+            info!("match: {}", m.pattern);
+            m.handler.handle(w, r);
             return;
         }
 
+        info!("no match");
         w.set_reason_phrase(ReasonPhrase::NotFound);
     }
 }
