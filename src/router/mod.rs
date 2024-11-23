@@ -1,20 +1,22 @@
-use std::collections::HashMap;
+use matcher::{Dynamic, Exact};
 
 use crate::{
     request::Request, response_writer::ResponseWriter, server::Handler,
     status_code_registry::ReasonPhrase,
 };
 
+mod matcher;
+
 pub struct Router<'a> {
-    exact: HashMap<String, &'a (dyn Handler + Sync)>,
-    dynamic: HashMap<String, &'a (dyn Handler + Sync)>,
+    exact: Exact<'a>,
+    dynamic: Dynamic<'a>,
 }
 
 impl<'a> Router<'a> {
     pub fn new() -> Self {
         Self {
-            exact: HashMap::new(),
-            dynamic: HashMap::new(),
+            exact: Exact::new(),
+            dynamic: Dynamic::new(),
         }
     }
 
@@ -22,20 +24,18 @@ impl<'a> Router<'a> {
         assert!(pattern.starts_with('/'));
 
         if pattern == "/" {
-            self.exact.insert(pattern, handler);
+            self.exact.add_route(pattern, handler);
             return;
         }
-
         if pattern.ends_with("/") {
             pattern.pop();
         }
-
-        let (prefix, suffix) = pattern.rsplit_once("/").unwrap();
-        if suffix.starts_with(":") {
-            self.dynamic.insert(prefix.to_owned(), handler);
+        let (key, param) = pattern.rsplit_once("/").unwrap();
+        if param.starts_with(":") {
+            self.dynamic.add_route(key.to_owned(), handler);
             return;
         }
-        self.exact.insert(pattern, handler);
+        self.exact.add_route(pattern, handler);
     }
 
     pub fn handle(&self, w: &mut ResponseWriter, r: &mut Request) {
@@ -45,13 +45,12 @@ impl<'a> Router<'a> {
             uri = &uri[..uri.len() - 1];
         }
 
-        let (prefix, param) = uri.rsplit_once("/").unwrap();
-        if let Some(handler) = self.dynamic.get(prefix) {
-            r.set_param(param.to_string());
+        if let Some((param, handler)) = self.dynamic.pattern_match(uri) {
+            r.set_param(param);
             handler.handle(w, r);
             return;
         }
-        if let Some(handler) = self.exact.get(uri) {
+        if let Some(handler) = self.exact.pattern_match(uri) {
             handler.handle(w, r);
             return;
         }
@@ -113,15 +112,6 @@ mod tests {
             let (w, _) = run(&router, test.uri);
             assert_eq!(w.get_status_code(), test.status_code);
         }
-    }
-
-    #[test]
-    fn test_router_root() {
-        let mut router = Router::new();
-        let noop_handler = &noop_handler();
-        router.add_route("/".to_owned(), noop_handler);
-        assert_eq!(router.exact.len(), 1);
-        assert!(router.exact.contains_key("/"));
     }
 
     #[test]
