@@ -9,7 +9,8 @@ impl<'a> Dynamic<'a> {
         Self(HashMap::new())
     }
 
-    pub fn add_route(&mut self, prefix: String, handler: &'a (impl Handler + Sync)) {
+    pub fn add_route(&mut self, prefix: impl Into<String>, handler: &'a (impl Handler + Sync)) {
+        let prefix = prefix.into();
         assert!(!prefix.ends_with("/"));
         self.0.insert(prefix, handler);
     }

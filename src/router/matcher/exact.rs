@@ -9,7 +9,8 @@ impl<'a> Exact<'a> {
         Self(HashMap::new())
     }
 
-    pub fn add_route(&mut self, pattern: String, handler: &'a (impl Handler + Sync)) {
+    pub fn add_route(&mut self, pattern: impl Into<String>, handler: &'a (impl Handler + Sync)) {
+        let pattern = pattern.into();
         assert!(pattern == "/" || !pattern.ends_with("/"));
         self.0.insert(pattern, handler);
     }

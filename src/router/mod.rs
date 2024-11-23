@@ -20,7 +20,8 @@ impl<'a> Router<'a> {
         }
     }
 
-    pub fn add_route(&mut self, mut pattern: String, handler: &'a (impl Handler + Sync)) {
+    pub fn add_route(&mut self, pattern: impl Into<String>, handler: &'a (impl Handler + Sync)) {
+        let mut pattern = pattern.into();
         assert!(pattern.starts_with('/'));
 
         if pattern == "/" {
@@ -32,7 +33,7 @@ impl<'a> Router<'a> {
         }
         let (key, param) = pattern.rsplit_once("/").unwrap();
         if param.starts_with(":") {
-            self.dynamic.add_route(key.to_owned(), handler);
+            self.dynamic.add_route(key, handler);
             return;
         }
         self.exact.add_route(pattern, handler);
@@ -85,8 +86,8 @@ mod tests {
     fn test_not_found() {
         let mut router = Router::new();
         let noop_handler = &noop_handler();
-        router.add_route("/".to_owned(), noop_handler);
-        router.add_route("/items".to_owned(), noop_handler);
+        router.add_route("/", noop_handler);
+        router.add_route("/items", noop_handler);
 
         struct Test {
             uri: &'static str,
@@ -118,8 +119,8 @@ mod tests {
     fn test_router_dynamic() {
         let mut router = Router::new();
         let noop_handler = &noop_handler();
-        router.add_route("/".to_owned(), noop_handler);
-        router.add_route("/items/:id".to_owned(), noop_handler);
+        router.add_route("/", noop_handler);
+        router.add_route("/items/:id", noop_handler);
 
         struct Test {
             uri: &'static str,
@@ -171,9 +172,9 @@ mod tests {
     fn test_router_both() {
         let mut router = Router::new();
         let noop_handler = &noop_handler();
-        router.add_route("/".to_owned(), noop_handler);
-        router.add_route("/items".to_owned(), noop_handler);
-        router.add_route("/items/:id".to_owned(), noop_handler);
+        router.add_route("/", noop_handler);
+        router.add_route("/items", noop_handler);
+        router.add_route("/items/:id", noop_handler);
 
         struct Test {
             uri: &'static str,

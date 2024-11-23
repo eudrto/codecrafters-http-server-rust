@@ -44,9 +44,9 @@ fn user_agent(w: &mut ResponseWriter, r: &mut Request) {
 
 pub fn run() {
     let mut router = Router::new();
-    router.add_route("/".to_owned(), &home);
-    router.add_route("/echo/:str".to_owned(), &echo);
-    router.add_route("/user-agent".to_owned(), &user_agent);
+    router.add_route("/", &home);
+    router.add_route("/echo/:str", &echo);
+    router.add_route("/user-agent", &user_agent);
 
     let server = Server::new("127.0.0.1:4221");
     server.run(router);
@@ -69,7 +69,7 @@ pub mod tests {
 
         thread::spawn(move || {
             let mut router = Router::new();
-            router.add_route("/".to_owned(), &home);
+            router.add_route("/", &home);
             server.run(router);
         });
 
@@ -85,7 +85,7 @@ pub mod tests {
 
         thread::spawn(move || {
             let mut router = Router::new();
-            router.add_route("/echo/:str".to_owned(), &echo);
+            router.add_route("/echo/:str", &echo);
             server.run(router);
         });
 
@@ -102,7 +102,7 @@ pub mod tests {
 
         thread::spawn(move || {
             let mut router = Router::new();
-            router.add_route("/user-agent".to_owned(), &user_agent);
+            router.add_route("/user-agent", &user_agent);
             server.run(router);
         });
 
