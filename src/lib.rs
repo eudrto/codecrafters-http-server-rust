@@ -7,6 +7,7 @@ use server::{HttpMethod, Server};
 use status_code_registry::ReasonPhrase;
 
 mod file_server;
+mod headers;
 mod multi_map;
 mod request;
 mod response_writer;
@@ -48,7 +49,12 @@ fn echo(w: &mut ResponseWriter, r: &mut Request) {
 }
 
 fn user_agent(w: &mut ResponseWriter, r: &mut Request) {
-    w.set_body_str(r.get_header("User-Agent").unwrap_or(""));
+    let Ok(user_agent) = r.get_headers().get_user_agent() else {
+        w.set_reason_phrase(ReasonPhrase::BadRequest);
+        return;
+    };
+
+    w.set_body_str(user_agent.unwrap_or(""));
     w.set_reason_phrase(ReasonPhrase::OK);
 }
 

@@ -1,10 +1,9 @@
-use std::{
-    collections::HashMap,
-    io::{BufRead, BufReader, ErrorKind, Read, Take},
-};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Take};
 
 use thiserror::Error;
 use tracing::info;
+
+use crate::{headers::Headers, multi_map::MultiMap};
 
 #[derive(Debug)]
 struct RequestLine<'a> {
@@ -35,7 +34,7 @@ impl<'a> RequestLine<'a> {
 pub struct Request {
     request_line: String,
     param: Option<String>,
-    headers: HashMap<String, String>,
+    headers: Headers,
     body: Option<Vec<u8>>,
 }
 
@@ -43,7 +42,7 @@ impl Request {
     pub fn new(
         request_line: String,
         param: Option<String>,
-        headers: HashMap<String, String>,
+        headers: Headers,
         body: Option<Vec<u8>>,
     ) -> Self {
         Self {
@@ -76,8 +75,8 @@ impl Request {
         self.param = Some(param);
     }
 
-    pub fn get_header(&self, key: &str) -> Option<&str> {
-        self.headers.get(&key.to_lowercase()).map(|v| v.as_str())
+    pub fn get_headers(&self) -> &Headers {
+        &self.headers
     }
 
     pub fn get_body(&self) -> Option<&[u8]> {
@@ -122,7 +121,7 @@ impl<R: Read> RequestReader<R> {
 
         info!(?request_line);
 
-        let mut headers = HashMap::new();
+        let mut mm = MultiMap::new_empty();
         self.buf_reader.set_limit(8 * 1024);
         loop {
             let mut line = String::new();
@@ -132,15 +131,23 @@ impl<R: Read> RequestReader<R> {
             if line.is_empty() {
                 break;
             }
-            let (k, v) = line.split_once(":").ok_or(InvalidRequest)?;
-            headers.insert(k.to_lowercase(), v.trim().to_owned());
+            let (k, values_line) = line.split_once(":").ok_or(InvalidRequest)?;
+            let values = values_line
+                .split(",")
+                .map(|v| v.trim().to_owned())
+                .collect();
+            mm.insert_vector(k.to_lowercase(), values);
         }
+        let headers = Headers::new(mm);
 
         self.buf_reader.set_limit(8 * 1024);
         let mut body = None;
         if RequestLine::new(&request_line).http_method().to_lowercase() == "post" {
-            let content_length = headers.get("content-length").ok_or(InvalidRequest)?;
-            let mut buf = vec![0; content_length.parse().map_err(|_| InvalidRequest)?];
+            let content_length = headers
+                .get_content_length()
+                .map_err(|_| InvalidRequest)?
+                .ok_or(InvalidRequest)?;
+            let mut buf = vec![0; content_length];
             if let Err(err) = self.buf_reader.read_exact(&mut buf) {
                 if err.kind() == ErrorKind::UnexpectedEof {
                     Err(InvalidRequest)?
@@ -157,18 +164,23 @@ impl<R: Read> RequestReader<R> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        io::{self, Cursor},
-    };
+    use std::io::{self, Cursor};
 
-    use crate::test_utils::{ErrReader, InfReader};
+    use crate::{
+        headers::Headers,
+        test_utils::{ErrReader, InfReader},
+    };
 
     use super::{EndOfFile, InvalidRequest, Request, RequestReader};
 
     #[test]
     fn test_request() {
-        let r = Request::new("GET / HTTP/1.1".to_owned(), None, HashMap::new(), None);
+        let r = Request::new(
+            "GET / HTTP/1.1".to_owned(),
+            None,
+            Headers::new_empty(),
+            None,
+        );
         assert_eq!(r.get_http_method(), "GET");
         assert_eq!(r.get_request_target(), "/");
         assert_eq!(r.get_http_version(), "HTTP/1.1");
@@ -217,7 +229,46 @@ mod tests {
         assert_eq!(r.get_http_method(), "GET");
         assert_eq!(r.get_request_target(), "/");
         assert_eq!(r.get_http_version(), "HTTP/1.1");
-        assert_eq!(r.get_header("accept").unwrap(), "*/*");
+        assert_eq!(
+            r.get_headers().get_scalar("accept").unwrap().unwrap(),
+            "*/*"
+        );
+    }
+
+    #[test]
+    fn test_request_reader_comma_separated_headers_ok() {
+        let data = "GET / HTTP/1.1\r\nAccept: text/html, application/json\r\n\r\n";
+        let cursor = Cursor::new(data);
+        let mut request_reader = RequestReader::new(cursor);
+        let r = request_reader.read().unwrap();
+        assert_eq!(r.get_http_method(), "GET");
+        assert_eq!(r.get_request_target(), "/");
+        assert_eq!(r.get_http_version(), "HTTP/1.1");
+        assert_eq!(
+            r.get_headers()
+                .get_iter("accept")
+                .unwrap()
+                .collect::<Vec<_>>(),
+            vec!["text/html", "application/json"]
+        );
+    }
+
+    #[test]
+    fn test_request_reader_repeated_headers_ok() {
+        let data = "GET / HTTP/1.1\r\nSet-Cookie: foo\r\nSet-Cookie: bar\r\n\r\n";
+        let cursor = Cursor::new(data);
+        let mut request_reader = RequestReader::new(cursor);
+        let r = request_reader.read().unwrap();
+        assert_eq!(r.get_http_method(), "GET");
+        assert_eq!(r.get_request_target(), "/");
+        assert_eq!(r.get_http_version(), "HTTP/1.1");
+        assert_eq!(
+            r.get_headers()
+                .get_iter("Set-Cookie")
+                .unwrap()
+                .collect::<Vec<_>>(),
+            vec!["foo", "bar"]
+        );
     }
 
     #[test]

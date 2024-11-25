@@ -139,8 +139,12 @@ fn handle_request(
     let _guard = span.enter();
     info!(?r);
 
-    let conn_ctrl = match r.get_header("connection") {
-        Some(c) if c == "close" => ConnCtrl::Close,
+    let conn_ctrl = match r
+        .get_headers()
+        .get_connection()
+        .map(|mut it| it.any(|val| val == "close"))
+    {
+        Some(true) => ConnCtrl::Close,
         _ => ConnCtrl::KeepAlive,
     };
 
