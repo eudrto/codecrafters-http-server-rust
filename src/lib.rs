@@ -7,6 +7,7 @@ use server::{HttpMethod, Server};
 use status_code_registry::ReasonPhrase;
 
 mod file_server;
+mod multi_map;
 mod request;
 mod response_writer;
 mod router;
