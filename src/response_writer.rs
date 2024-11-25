@@ -49,7 +49,11 @@ impl ResponseWriter {
     }
 
     fn add_header(&mut self, k: String, v: String) {
-        self.headers.push((k, v));
+        if let Some(entry) = self.headers.iter_mut().find(|entry| entry.0 == k) {
+            entry.1 = v;
+        } else {
+            self.headers.push((k, v));
+        }
     }
 
     pub fn add_allow_header(&mut self, http_methods: Vec<HttpMethod>) {
@@ -62,12 +66,27 @@ impl ResponseWriter {
         self.add_header("Allow".to_owned(), http_methods);
     }
 
+    pub fn get_content_type_header(&self) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|entry| entry.0.to_lowercase() == "content-type")
+            .map(|(_, v)| v.as_str())
+    }
+
+    pub fn add_content_encoding_header(&mut self, content_encoding: &str) {
+        self.add_header("Content-Encoding".to_owned(), content_encoding.to_string());
+    }
+
     fn add_content_type_header(&mut self, content_type: &str) {
         self.add_header("Content-Type".to_owned(), content_type.to_owned());
     }
 
     fn add_content_length_header(&mut self) {
         self.add_header("Content-Length".to_owned(), self.body.len().to_string());
+    }
+
+    pub fn get_body(&self) -> &[u8] {
+        &self.body
     }
 
     pub fn set_body(&mut self, body: Vec<u8>, content_type: &str) {

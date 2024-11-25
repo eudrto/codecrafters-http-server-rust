@@ -26,6 +26,10 @@ impl Headers {
             .map(|it| it.map(|e| e.as_str()))
     }
 
+    pub fn get_accept_encoding(&self) -> Option<impl Iterator<Item = &str> + '_> {
+        self.get_iter("accept-encoding")
+    }
+
     pub fn get_connection(&self) -> Option<impl Iterator<Item = &str> + '_> {
         self.get_iter("connection")
     }
@@ -44,5 +48,4 @@ impl Headers {
     pub fn get_user_agent(&self) -> anyhow::Result<Option<&str>> {
         self.get_scalar("user-agent")
     }
-
 }

@@ -1,5 +1,6 @@
 use clap::Parser;
 
+use middleware::gzip_compressor;
 use request::Request;
 use response_writer::ResponseWriter;
 use router::Router;
@@ -8,6 +9,7 @@ use status_code_registry::ReasonPhrase;
 
 mod file_server;
 mod headers;
+mod middleware;
 mod multi_map;
 mod request;
 mod response_writer;
@@ -63,7 +65,8 @@ pub fn run() {
 
     let mut router = Router::new();
     router.add_route(HttpMethod::Get, "/", &home);
-    router.add_route(HttpMethod::Get, "/echo/:str", &echo);
+    let echo_handler = gzip_compressor::new(echo);
+    router.add_route(HttpMethod::Get, "/echo/:str", &echo_handler);
     router.add_route(HttpMethod::Get, "/user-agent", &user_agent);
 
     let file_retriever = args
