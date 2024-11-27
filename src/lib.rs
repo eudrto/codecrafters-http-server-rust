@@ -16,6 +16,7 @@ mod response_writer;
 mod router;
 mod server;
 mod status_code_registry;
+mod stream_reader;
 #[cfg(test)]
 mod test_utils;
 

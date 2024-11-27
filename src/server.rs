@@ -11,9 +11,10 @@ use strum_macros::Display;
 use tracing::{error, info, span, Level, Span};
 
 use crate::{
-    request::{EndOfFile, Request, RequestReader},
+    request::{Request, RequestReader},
     response_writer::ResponseWriter,
     status_code_registry::ReasonPhrase,
+    stream_reader::EndOfFile,
 };
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Display)]

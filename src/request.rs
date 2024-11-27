@@ -1,9 +1,9 @@
-use std::io::{BufRead, BufReader, ErrorKind, Read, Take};
+use std::io::{ErrorKind, Read};
 
 use thiserror::Error;
 use tracing::info;
 
-use crate::{headers::Headers, multi_map::MultiMap};
+use crate::{headers::Headers, multi_map::MultiMap, stream_reader::StreamReader};
 
 #[derive(Debug)]
 struct RequestLine<'a> {
@@ -85,32 +85,26 @@ impl Request {
 }
 
 #[derive(Error, Debug)]
-#[error("end of file")]
-pub struct EndOfFile;
-
-#[derive(Error, Debug)]
 #[error("invalid request")]
 pub struct InvalidRequest;
 
 pub struct RequestReader<R> {
-    buf_reader: Take<BufReader<R>>,
+    stream_reader: StreamReader<R>,
 }
 
 impl<R: Read> RequestReader<R> {
     pub fn new(r: R) -> Self {
         Self {
-            buf_reader: BufReader::new(r).take(u64::MAX),
+            stream_reader: StreamReader::new(r),
         }
     }
 
     pub fn read(&mut self) -> anyhow::Result<Request> {
-        let mut request_line = String::new();
-        self.buf_reader.set_limit(1024);
-        let n = self.buf_reader.read_line(&mut request_line)?;
-        if n == 0 {
-            Err(EndOfFile)?
-        }
-        request_line = request_line
+        self.stream_reader.set_limit(1024);
+        let mut request_line_buf = String::new();
+        self.stream_reader.read_line(&mut request_line_buf)?;
+
+        let request_line = request_line_buf
             .strip_suffix("\r\n")
             .ok_or(InvalidRequest)?
             .to_owned();
@@ -122,11 +116,14 @@ impl<R: Read> RequestReader<R> {
         info!(?request_line);
 
         let mut mm = MultiMap::new_empty();
-        self.buf_reader.set_limit(8 * 1024);
+        self.stream_reader.set_limit(8 * 1024);
         loop {
-            let mut line = String::new();
-            self.buf_reader.read_line(&mut line)?;
-            line = line.strip_suffix("\r\n").ok_or(InvalidRequest)?.to_owned();
+            let mut line_buf = String::new();
+            self.stream_reader.read_line(&mut line_buf)?;
+            let line = line_buf
+                .strip_suffix("\r\n")
+                .ok_or(InvalidRequest)?
+                .to_owned();
 
             if line.is_empty() {
                 break;
@@ -140,7 +137,7 @@ impl<R: Read> RequestReader<R> {
         }
         let headers = Headers::new(mm);
 
-        self.buf_reader.set_limit(8 * 1024);
+        self.stream_reader.set_limit(8 * 1024);
         let mut body = None;
         if RequestLine::new(&request_line).http_method().to_lowercase() == "post" {
             let content_length = headers
@@ -148,7 +145,7 @@ impl<R: Read> RequestReader<R> {
                 .map_err(|_| InvalidRequest)?
                 .ok_or(InvalidRequest)?;
             let mut buf = vec![0; content_length];
-            if let Err(err) = self.buf_reader.read_exact(&mut buf) {
+            if let Err(err) = self.stream_reader.read_exact(&mut buf) {
                 if err.kind() == ErrorKind::UnexpectedEof {
                     Err(InvalidRequest)?
                 } else {
@@ -166,12 +163,9 @@ impl<R: Read> RequestReader<R> {
 mod tests {
     use std::io::{self, Cursor};
 
-    use crate::{
-        headers::Headers,
-        test_utils::{ErrReader, InfReader},
-    };
+    use crate::{headers::Headers, stream_reader::EndOfFile, test_utils::ErrReader};
 
-    use super::{EndOfFile, InvalidRequest, Request, RequestReader};
+    use super::{InvalidRequest, Request, RequestReader};
 
     #[test]
     fn test_request() {
@@ -299,38 +293,14 @@ mod tests {
             let cursor = Cursor::new(data);
             let mut request_reader = RequestReader::new(cursor);
             let res = request_reader.read();
-            res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
+            res.unwrap_err().downcast_ref::<EndOfFile>().unwrap();
         }
         {
             let data = "GET / HTTP/1.1\r\nAccept: */*\r\n";
             let cursor = Cursor::new(data);
             let mut request_reader = RequestReader::new(cursor);
             let res = request_reader.read();
-            res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
-        }
-    }
-
-    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    // infinite stream
-    // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-    #[test]
-    fn test_request_reader_infinite_stream() {
-        {
-            let prefix = b"GET / HTTP/1.1\r\n";
-            let repeat = 0;
-            let inf_reader = InfReader::new(prefix, repeat);
-            let mut request_reader = RequestReader::new(inf_reader);
-            let res = request_reader.read();
-            res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
-        }
-        {
-            let prefix = b"GET / HTTP/1.1\r\nAccept: */*\r\n";
-            let repeat = 0;
-            let inf_reader = InfReader::new(prefix, repeat);
-            let mut request_reader = RequestReader::new(inf_reader);
-            let res = request_reader.read();
-            res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
+            res.unwrap_err().downcast_ref::<EndOfFile>().unwrap();
         }
     }
 
