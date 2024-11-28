@@ -1,38 +1,54 @@
 use std::io::{ErrorKind, Read};
 
+use anyhow::anyhow;
 use thiserror::Error;
 use tracing::info;
 
 use crate::{headers::Headers, slice_ext, stream_reader::StreamReader};
 
 #[derive(Debug)]
-struct RequestLine<'a> {
-    line: &'a str,
+pub struct RequestLine<'a> {
+    http_method: &'a str,
+    request_target: &'a str,
+    http_version: &'a str,
 }
 
 impl<'a> RequestLine<'a> {
-    fn new(line: &'a str) -> Self {
-        Self { line }
+    fn new(http_method: &'a str, request_target: &'a str, http_version: &'a str) -> Self {
+        Self {
+            http_method,
+            request_target,
+            http_version,
+        }
+    }
+
+    fn parse(raw: &'a str) -> anyhow::Result<Self> {
+        let raw = raw.strip_suffix("\r\n").ok_or(anyhow!("missing crlf"))?;
+        let mut it = raw.split(|c| c == ' ');
+        let http_method = it.next().ok_or(anyhow!("empty http method"))?;
+        let request_target = it.next().ok_or(anyhow!("empty request target"))?;
+        let http_version = it.next().ok_or(anyhow!("empty http version"))?;
+        Ok(Self::new(http_method, request_target, http_version))
     }
 
     #[allow(unused)]
-    fn http_method(&self) -> &'a str {
-        self.line.split(" ").nth(0).unwrap()
+    pub fn http_method(&self) -> &'a str {
+        self.http_method
     }
 
-    fn request_target(&self) -> &'a str {
-        self.line.split(" ").nth(1).unwrap()
+    pub fn request_target(&self) -> &'a str {
+        self.request_target
     }
 
     #[allow(unused)]
-    fn http_version(&self) -> &'a str {
-        self.line.split(" ").nth(2).unwrap()
+    pub fn http_version(&self) -> &'a str {
+        self.http_version
     }
 }
 
 #[derive(Debug)]
 pub struct Request<'a> {
-    request_line: String,
+    request_line: RequestLine<'a>,
     param: Option<String>,
     headers: Headers<'a>,
     body: Option<Vec<u8>>,
@@ -40,7 +56,7 @@ pub struct Request<'a> {
 
 impl<'a> Request<'a> {
     pub fn new(
-        request_line: String,
+        request_line: RequestLine<'a>,
         param: Option<String>,
         headers: Headers<'a>,
         body: Option<Vec<u8>>,
@@ -55,16 +71,16 @@ impl<'a> Request<'a> {
 
     #[allow(unused)]
     pub fn get_http_method(&self) -> &str {
-        RequestLine::new(&self.request_line).http_method()
+        self.request_line.http_method()
     }
 
     pub fn get_request_target(&self) -> &str {
-        RequestLine::new(&self.request_line).request_target()
+        self.request_line.request_target()
     }
 
     #[allow(unused)]
     pub fn get_http_version(&self) -> &str {
-        RequestLine::new(&self.request_line).http_version()
+        self.request_line.http_version()
     }
 
     pub fn get_param(&self) -> Option<&str> {
@@ -113,18 +129,13 @@ impl<R: Read> RequestReader<R> {
     pub fn read<'a>(&mut self, buf: &'a mut String) -> anyhow::Result<Request<'a>> {
         self.stream_reader.set_limit(1024);
         self.stream_reader.read_line(buf)?;
-
-        let request_line = buf.strip_suffix("\r\n").ok_or(InvalidRequest)?.to_owned();
-
-        if request_line.split(" ").count() != 3 {
+        if !buf.ends_with("\r\n") {
             Err(InvalidRequest)?
         }
-
-        info!(?request_line);
+        let request_line_end = buf.len();
 
         self.stream_reader.set_limit(8 * 1024);
-        buf.clear();
-        let mut start = 0;
+        let mut start = request_line_end;
         loop {
             self.stream_reader.read_line(buf)?;
             let mut line = &buf[start..];
@@ -135,12 +146,17 @@ impl<R: Read> RequestReader<R> {
             start = buf.len();
         }
 
-        make_keys_lowercase(unsafe { buf.as_bytes_mut() });
-        let headers = Headers::parse(buf).map_err(|_| InvalidRequest)?;
+        let (_, headers_raw) = buf.split_at_mut(request_line_end);
+        make_keys_lowercase(unsafe { headers_raw.as_bytes_mut() });
+
+        let request_line = RequestLine::parse(&buf[..request_line_end])?;
+        info!(?request_line);
+
+        let headers = Headers::parse(&buf[request_line_end..]).map_err(|_| InvalidRequest)?;
 
         self.stream_reader.set_limit(8 * 1024);
         let mut body = None;
-        if RequestLine::new(&request_line).http_method().to_lowercase() == "post" {
+        if request_line.http_method().to_lowercase() == "post" {
             let content_length = headers
                 .get_content_length()
                 .map_err(|_| InvalidRequest)?
@@ -164,21 +180,16 @@ impl<R: Read> RequestReader<R> {
 mod tests {
     use std::io::{self, Cursor};
 
-    use crate::{headers::Headers, stream_reader::EndOfFile, test_utils::ErrReader};
+    use crate::{request::RequestLine, stream_reader::EndOfFile, test_utils::ErrReader};
 
-    use super::{InvalidRequest, Request, RequestReader};
+    use super::{InvalidRequest, RequestReader};
 
     #[test]
-    fn test_request() {
-        let r = Request::new(
-            "GET / HTTP/1.1".to_owned(),
-            None,
-            Headers::new_empty(),
-            None,
-        );
-        assert_eq!(r.get_http_method(), "GET");
-        assert_eq!(r.get_request_target(), "/");
-        assert_eq!(r.get_http_version(), "HTTP/1.1");
+    fn test_request_line_parse() {
+        let request_line = RequestLine::parse("GET / HTTP/1.1\r\n").unwrap();
+        assert_eq!(request_line.http_method(), "GET");
+        assert_eq!(request_line.request_target(), "/");
+        assert_eq!(request_line.http_version(), "HTTP/1.1");
     }
 
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

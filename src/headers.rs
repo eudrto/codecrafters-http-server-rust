@@ -10,7 +10,7 @@ impl<'a> Headers<'a> {
         Self(mm)
     }
 
-    #[cfg(test)]
+    #[allow(unused)]
     pub fn new_empty() -> Self {
         Self(MultiMap::new_empty())
     }
