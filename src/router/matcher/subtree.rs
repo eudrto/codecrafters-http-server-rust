@@ -16,10 +16,13 @@ impl<'a> Subtree<'a> {
         self.0.sort_by(|(l, _), (r, _)| r.cmp(l));
     }
 
-    pub fn pattern_match<'param>(&self, request_target: &'param str) -> Option<(Match, String)> {
+    pub fn pattern_match<'req_line>(
+        &self,
+        request_target: &'req_line str,
+    ) -> Option<(Match, &'req_line str)> {
         for (pattern, handler) in &self.0 {
             if let Some(param) = request_target.strip_prefix(pattern) {
-                return Some((Match::new(pattern, *handler), param.to_owned()));
+                return Some((Match::new(pattern, *handler), param));
             }
         }
         None

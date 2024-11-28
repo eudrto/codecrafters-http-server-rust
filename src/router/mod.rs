@@ -30,11 +30,11 @@ impl<'a> Router<'a> {
         self.chains[http_method as usize].add_route(pattern, handler);
     }
 
-    fn pattern_match(
+    fn pattern_match<'req_line>(
         &self,
         http_method: HttpMethod,
-        request_target: &str,
-    ) -> Option<(Match, Option<String>)> {
+        request_target: &'req_line str,
+    ) -> Option<(Match, Option<&'req_line str>)> {
         self.chains[http_method as usize].pattern_match(request_target)
     }
 

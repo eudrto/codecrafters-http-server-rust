@@ -23,7 +23,10 @@ impl<'a> Dynamic<'a> {
         self.0.insert(prefix, (pattern, handler));
     }
 
-    pub fn pattern_match(&self, request_target: &str) -> Option<(Match, String)> {
+    pub fn pattern_match<'req_line>(
+        &self,
+        request_target: &'req_line str,
+    ) -> Option<(Match, &'req_line str)> {
         let (prefix, param) = request_target.rsplit_once("/")?;
         if param.is_empty() {
             return None;
@@ -31,7 +34,7 @@ impl<'a> Dynamic<'a> {
 
         self.0
             .get(prefix)
-            .map(|(pattern, handler)| (Match::new(pattern, *handler), param.to_owned()))
+            .map(|(pattern, handler)| (Match::new(pattern, *handler), param))
     }
 }
 

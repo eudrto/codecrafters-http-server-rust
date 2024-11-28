@@ -37,10 +37,10 @@ impl<'a> Chain<'a> {
         self.exact.add_route(pattern, handler);
     }
 
-    pub fn pattern_match<'param>(
+    pub fn pattern_match<'req_line>(
         &self,
-        request_target: &'param str,
-    ) -> Option<(Match, Option<String>)> {
+        request_target: &'req_line str,
+    ) -> Option<(Match, Option<&'req_line str>)> {
         if let Some(m) = self.exact.pattern_match(request_target) {
             return Some((m, None));
         }

@@ -48,7 +48,7 @@ impl<'a> RequestLine<'a> {
 #[derive(Debug)]
 pub struct Request<'a> {
     request_line: RequestLine<'a>,
-    param: Option<String>,
+    param: Option<&'a str>,
     headers: Headers<'a>,
     body: Option<Vec<u8>>,
 }
@@ -56,7 +56,7 @@ pub struct Request<'a> {
 impl<'a> Request<'a> {
     pub fn new(
         request_line: RequestLine<'a>,
-        param: Option<String>,
+        param: Option<&'a str>,
         headers: Headers<'a>,
         body: Option<Vec<u8>>,
     ) -> Self {
@@ -68,17 +68,16 @@ impl<'a> Request<'a> {
         }
     }
 
-    #[allow(unused)]
-    pub fn get_http_method(&self) -> &str {
+    pub fn get_http_method(&self) -> &'a str {
         self.request_line.http_method()
     }
 
-    pub fn get_request_target(&self) -> &str {
+    pub fn get_request_target(&self) -> &'a str {
         self.request_line.request_target()
     }
 
     #[allow(unused)]
-    pub fn get_http_version(&self) -> &str {
+    pub fn get_http_version(&self) -> &'a str {
         self.request_line.http_version()
     }
 
@@ -86,7 +85,7 @@ impl<'a> Request<'a> {
         self.param.as_deref()
     }
 
-    pub fn set_param(&mut self, param: String) {
+    pub fn set_param(&mut self, param: &'a str) {
         self.param = Some(param);
     }
 
