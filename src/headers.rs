@@ -1,4 +1,6 @@
-use crate::multi_map::MultiMap;
+use anyhow::anyhow;
+
+use crate::multi_map::{MultiMap, Value};
 
 #[derive(Debug)]
 pub struct Headers(MultiMap<String, String>);
@@ -11,6 +13,30 @@ impl Headers {
     #[cfg(test)]
     pub fn new_empty() -> Self {
         Self(MultiMap::new_empty())
+    }
+
+    fn parse_values_line(values_line: &str) -> Value<String> {
+        Value::from(
+            values_line
+                .split(",")
+                .map(|v| v.trim().to_owned())
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn parse(raw: &str) -> anyhow::Result<Self> {
+        let mm = raw
+            .lines()
+            .take_while(|line| !line.is_empty())
+            .map(|line| {
+                let (k, values_line) = line
+                    .split_once(":")
+                    .ok_or(anyhow!("missing colon delimiter"))?;
+                Ok((k.to_lowercase(), Self::parse_values_line(values_line)))
+            })
+            .collect::<Result<_, anyhow::Error>>()?;
+
+        Ok(Self::new(mm))
     }
 
     pub fn get_scalar(&self, key: &str) -> anyhow::Result<Option<&str>> {

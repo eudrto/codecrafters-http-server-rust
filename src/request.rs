@@ -3,7 +3,7 @@ use std::io::{ErrorKind, Read};
 use thiserror::Error;
 use tracing::info;
 
-use crate::{headers::Headers, multi_map::MultiMap, stream_reader::StreamReader};
+use crate::{headers::Headers, stream_reader::StreamReader};
 
 #[derive(Debug)]
 struct RequestLine<'a> {
@@ -111,24 +111,19 @@ impl<R: Read> RequestReader<R> {
 
         info!(?request_line);
 
-        let mut mm = MultiMap::new_empty();
         self.stream_reader.set_limit(8 * 1024);
+        buf.clear();
+        let mut start = 0;
         loop {
-            buf.clear();
             self.stream_reader.read_line(buf)?;
-            let line = buf.strip_suffix("\r\n").ok_or(InvalidRequest)?.to_owned();
-
+            let mut line = &buf[start..];
+            line = line.strip_suffix("\r\n").ok_or(InvalidRequest)?;
             if line.is_empty() {
                 break;
             }
-            let (k, values_line) = line.split_once(":").ok_or(InvalidRequest)?;
-            let values = values_line
-                .split(",")
-                .map(|v| v.trim().to_owned())
-                .collect();
-            mm.insert_vector(k.to_lowercase(), values);
+            start = buf.len();
         }
-        let headers = Headers::new(mm);
+        let headers = Headers::parse(buf).map_err(|_| InvalidRequest)?;
 
         self.stream_reader.set_limit(8 * 1024);
         let mut body = None;
