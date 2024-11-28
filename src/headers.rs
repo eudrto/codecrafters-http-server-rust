@@ -16,7 +16,19 @@ impl<'a> Headers<'a> {
     }
 
     fn parse_values_line(values_line: &str) -> Value<&str> {
-        Value::from(values_line.split(",").map(|v| v.trim()).collect::<Vec<_>>())
+        let mut it = values_line.split(',');
+        let first = it.next().unwrap();
+
+        match it.next() {
+            None => Value::Scalar(first.trim()),
+            Some(second) => Value::Vector(
+                [first, second]
+                    .into_iter()
+                    .chain(it)
+                    .map(|value| value.trim())
+                    .collect(),
+            ),
+        }
     }
 
     pub fn parse(raw: &'a str) -> anyhow::Result<Self> {
