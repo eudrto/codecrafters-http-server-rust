@@ -103,10 +103,12 @@ fn handle_connection(
 ) -> anyhow::Result<()> {
     let (reader, writer) = (&stream, &stream);
     reader.set_read_timeout(read_timeout)?;
+
     let mut request_reader = RequestReader::new(reader);
+    let mut reader_buf = String::with_capacity(8 * 1024);
 
     loop {
-        match handle_request(&mut request_reader, writer, handler) {
+        match handle_request(&mut request_reader, &mut reader_buf, writer, handler) {
             Ok(ConnCtrl::KeepAlive) => continue,
             Ok(ConnCtrl::Close) => return Ok(()),
             Err(err) => {
@@ -118,10 +120,11 @@ fn handle_connection(
 
 fn handle_request(
     request_reader: &mut RequestReader<&TcpStream>,
+    reader_buf: &mut String,
     mut writer: &TcpStream,
     handler: &impl Handler,
 ) -> anyhow::Result<ConnCtrl> {
-    let mut r = match request_reader.read() {
+    let mut r = match request_reader.read(reader_buf) {
         Ok(r) => r,
         Err(err) => {
             if err.downcast_ref::<EndOfFile>().is_some() {
