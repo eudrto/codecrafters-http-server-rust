@@ -15,6 +15,7 @@ mod request;
 mod response_writer;
 mod router;
 mod server;
+mod slice_ext;
 mod status_code_registry;
 mod stream_reader;
 #[cfg(test)]

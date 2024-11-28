@@ -3,7 +3,7 @@ use std::io::{ErrorKind, Read};
 use thiserror::Error;
 use tracing::info;
 
-use crate::{headers::Headers, stream_reader::StreamReader};
+use crate::{headers::Headers, slice_ext, stream_reader::StreamReader};
 
 #[derive(Debug)]
 struct RequestLine<'a> {
@@ -31,18 +31,18 @@ impl<'a> RequestLine<'a> {
 }
 
 #[derive(Debug)]
-pub struct Request {
+pub struct Request<'a> {
     request_line: String,
     param: Option<String>,
-    headers: Headers,
+    headers: Headers<'a>,
     body: Option<Vec<u8>>,
 }
 
-impl Request {
+impl<'a> Request<'a> {
     pub fn new(
         request_line: String,
         param: Option<String>,
-        headers: Headers,
+        headers: Headers<'a>,
         body: Option<Vec<u8>>,
     ) -> Self {
         Self {
@@ -84,6 +84,17 @@ impl Request {
     }
 }
 
+fn make_keys_lowercase(bytes: &mut [u8]) {
+    let lines = slice_ext::split_pattern_mut(bytes, b"\r\n");
+
+    for line in lines {
+        let Some((k, _)) = slice_ext::split_once_mut(line, b":") else {
+            return;
+        };
+        k.make_ascii_lowercase();
+    }
+}
+
 #[derive(Error, Debug)]
 #[error("invalid request")]
 pub struct InvalidRequest;
@@ -99,7 +110,7 @@ impl<R: Read> RequestReader<R> {
         }
     }
 
-    pub fn read(&mut self, buf: &mut String) -> anyhow::Result<Request> {
+    pub fn read<'a>(&mut self, buf: &'a mut String) -> anyhow::Result<Request<'a>> {
         self.stream_reader.set_limit(1024);
         self.stream_reader.read_line(buf)?;
 
@@ -123,6 +134,8 @@ impl<R: Read> RequestReader<R> {
             }
             start = buf.len();
         }
+
+        make_keys_lowercase(unsafe { buf.as_bytes_mut() });
         let headers = Headers::parse(buf).map_err(|_| InvalidRequest)?;
 
         self.stream_reader.set_limit(8 * 1024);
@@ -187,7 +200,8 @@ mod tests {
     fn test_request_reader_status_line_empty() {
         let cursor = Cursor::new("");
         let mut request_reader = RequestReader::new(cursor);
-        let res = request_reader.read(&mut String::new());
+        let mut buf = String::new();
+        let res = request_reader.read(&mut buf);
         res.unwrap_err().downcast_ref::<EndOfFile>().unwrap();
     }
 
@@ -195,7 +209,8 @@ mod tests {
     fn test_request_reader_status_line_error() {
         let err_reader = ErrReader::new(b"GET /");
         let mut request_reader = RequestReader::new(err_reader);
-        let res = request_reader.read(&mut String::new());
+        let mut buf = String::new();
+        let res = request_reader.read(&mut buf);
         res.unwrap_err().downcast_ref::<io::Error>().unwrap();
     }
 
@@ -262,7 +277,8 @@ mod tests {
         let data = "GET / HTTP/1.1\r\nAccept */*\r\n\r\n";
         let cursor = Cursor::new(data);
         let mut request_reader = RequestReader::new(cursor);
-        let res = request_reader.read(&mut String::new());
+        let mut buf = String::new();
+        let res = request_reader.read(&mut buf);
         res.unwrap_err().downcast_ref::<InvalidRequest>().unwrap();
     }
 
@@ -270,7 +286,8 @@ mod tests {
     fn test_request_reader_headers_error() {
         let err_reader = ErrReader::new(b"GET / HTTP/1.1\r\nAccept");
         let mut request_reader = RequestReader::new(err_reader);
-        let res = request_reader.read(&mut String::new());
+        let mut buf = String::new();
+        let res = request_reader.read(&mut buf);
         res.unwrap_err().downcast_ref::<io::Error>().unwrap();
     }
 
@@ -284,14 +301,16 @@ mod tests {
             let data = "GET / HTTP/1.1\r\n";
             let cursor = Cursor::new(data);
             let mut request_reader = RequestReader::new(cursor);
-            let res = request_reader.read(&mut String::new());
+            let mut buf = String::new();
+            let res = request_reader.read(&mut buf);
             res.unwrap_err().downcast_ref::<EndOfFile>().unwrap();
         }
         {
             let data = "GET / HTTP/1.1\r\nAccept: */*\r\n";
             let cursor = Cursor::new(data);
             let mut request_reader = RequestReader::new(cursor);
-            let res = request_reader.read(&mut String::new());
+            let mut buf = String::new();
+            let res = request_reader.read(&mut buf);
             res.unwrap_err().downcast_ref::<EndOfFile>().unwrap();
         }
     }
@@ -323,7 +342,8 @@ mod tests {
             assert_eq!(r.get_http_version(), "HTTP/1.1");
         }
 
-        let res = request_reader.read(&mut String::new());
+        let mut buf = String::new();
+        let res = request_reader.read(&mut buf);
         res.unwrap_err().downcast_ref::<EndOfFile>().unwrap();
     }
 }

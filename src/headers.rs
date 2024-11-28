@@ -3,10 +3,10 @@ use anyhow::anyhow;
 use crate::multi_map::{MultiMap, Value};
 
 #[derive(Debug)]
-pub struct Headers(MultiMap<String, String>);
+pub struct Headers<'a>(MultiMap<&'a str, &'a str>);
 
-impl Headers {
-    pub fn new(mm: MultiMap<String, String>) -> Self {
+impl<'a> Headers<'a> {
+    pub fn new(mm: MultiMap<&'a str, &'a str>) -> Self {
         Self(mm)
     }
 
@@ -15,16 +15,11 @@ impl Headers {
         Self(MultiMap::new_empty())
     }
 
-    fn parse_values_line(values_line: &str) -> Value<String> {
-        Value::from(
-            values_line
-                .split(",")
-                .map(|v| v.trim().to_owned())
-                .collect::<Vec<_>>(),
-        )
+    fn parse_values_line(values_line: &str) -> Value<&str> {
+        Value::from(values_line.split(",").map(|v| v.trim()).collect::<Vec<_>>())
     }
 
-    pub fn parse(raw: &str) -> anyhow::Result<Self> {
+    pub fn parse(raw: &'a str) -> anyhow::Result<Self> {
         let mm = raw
             .lines()
             .take_while(|line| !line.is_empty())
@@ -32,7 +27,7 @@ impl Headers {
                 let (k, values_line) = line
                     .split_once(":")
                     .ok_or(anyhow!("missing colon delimiter"))?;
-                Ok((k.to_lowercase(), Self::parse_values_line(values_line)))
+                Ok((k, Self::parse_values_line(values_line)))
             })
             .collect::<Result<_, anyhow::Error>>()?;
 
@@ -40,16 +35,13 @@ impl Headers {
     }
 
     pub fn get_scalar(&self, key: &str) -> anyhow::Result<Option<&str>> {
-        Ok(self
-            .0
-            .get_scalar(key.to_lowercase().as_str())?
-            .map(|s| s.as_str()))
+        Ok(self.0.get_scalar(key.to_lowercase().as_str())?.copied())
     }
 
     pub fn get_iter(&self, key: &str) -> Option<impl Iterator<Item = &str> + '_> {
         self.0
             .get_value_iter(key.to_lowercase().as_str())
-            .map(|it| it.map(|e| e.as_str()))
+            .map(|it| it.copied())
     }
 
     pub fn get_accept_encoding(&self) -> Option<impl Iterator<Item = &str> + '_> {
