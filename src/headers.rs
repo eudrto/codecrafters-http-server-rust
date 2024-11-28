@@ -67,3 +67,42 @@ impl<'a> Headers<'a> {
         self.get_scalar("user-agent")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::headers::Headers;
+
+    #[test]
+    fn test_parse_simple() {
+        let raw = "accept: */*\r\n\r\n";
+        let headers = Headers::parse(raw).unwrap();
+        assert_eq!(headers.get_scalar("accept").unwrap().unwrap(), "*/*");
+    }
+
+    #[test]
+    fn test_parse_comma_separated() {
+        let raw = "accept: text/html, application/json\r\n\r\n";
+        let headers = Headers::parse(raw).unwrap();
+        assert_eq!(
+            headers.get_iter("Accept").unwrap().collect::<Vec<_>>(),
+            vec!["text/html", "application/json"]
+        );
+    }
+
+    #[test]
+    fn test_parse_repeated() {
+        let raw = "set-cookie: foo\r\nset-cookie: bar\r\n\r\n";
+        let headers = Headers::parse(raw).unwrap();
+        assert_eq!(
+            headers.get_iter("Set-Cookie").unwrap().collect::<Vec<_>>(),
+            vec!["foo", "bar"]
+        );
+    }
+
+    #[test]
+    fn test_parse_no_colon() {
+        let raw = "Accept */*\r\n\r\n";
+        let res = Headers::parse(raw);
+        res.unwrap_err();
+    }
+}

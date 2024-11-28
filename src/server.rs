@@ -8,10 +8,11 @@ use std::{
 };
 
 use strum_macros::Display;
-use tracing::{error, info, span, Level, Span};
+use tracing::{debug, error, info, span, Level, Span};
 
 use crate::{
-    request::{Request, RequestReader},
+    headers::Headers,
+    request::{make_keys_lowercase, InvalidRequest, Request, RequestLine, RequestReader},
     response_writer::ResponseWriter,
     status_code_registry::ReasonPhrase,
     stream_reader::EndOfFile,
@@ -101,7 +102,7 @@ fn handle_connection(
     read_timeout: Option<Duration>,
     handler: &impl Handler,
 ) -> anyhow::Result<()> {
-    let (reader, writer) = (&stream, &stream);
+    let (reader, mut writer) = (&stream, &stream);
     reader.set_read_timeout(read_timeout)?;
 
     let mut request_reader = RequestReader::new(reader);
@@ -112,6 +113,13 @@ fn handle_connection(
             Ok(ConnCtrl::KeepAlive) => continue,
             Ok(ConnCtrl::Close) => return Ok(()),
             Err(err) => {
+                if err.downcast_ref::<InvalidRequest>().is_some() {
+                    debug!(?err);
+                    let mut w = ResponseWriter::new_empty();
+                    w.set_reason_phrase(ReasonPhrase::BadRequest);
+                    writer.write_all(&w.write())?;
+                    return Ok(());
+                }
                 return Err(err);
             }
         }
@@ -124,20 +132,23 @@ fn handle_request(
     mut writer: &TcpStream,
     handler: &impl Handler,
 ) -> anyhow::Result<ConnCtrl> {
-    let mut r = match request_reader.read(reader_buf) {
-        Ok(r) => r,
+    let request_line_end = match request_reader.read_metadata(reader_buf) {
+        Ok(request_line_end) => request_line_end,
         Err(err) => {
             if err.downcast_ref::<EndOfFile>().is_some() {
                 return Ok(ConnCtrl::Close);
             }
-
-            error!(?err);
-            let mut w = ResponseWriter::new_empty();
-            w.set_reason_phrase(ReasonPhrase::BadRequest);
-            writer.write_all(&w.write())?;
-            return Ok(ConnCtrl::Close);
+            Err(InvalidRequest)?
         }
     };
+
+    let (_, headers_raw) = reader_buf.split_at_mut(request_line_end);
+    make_keys_lowercase(unsafe { headers_raw.as_bytes_mut() });
+    let request_line = RequestLine::parse(&reader_buf[..request_line_end])?;
+    info!(?request_line);
+    let headers = Headers::parse(&reader_buf[request_line_end..]).map_err(|_| InvalidRequest)?;
+    let body = request_reader.read_body(&request_line, &headers)?;
+    let mut r = Request::new(request_line, None, headers, body);
 
     let span = create_req_span(&r);
     let _guard = span.enter();
